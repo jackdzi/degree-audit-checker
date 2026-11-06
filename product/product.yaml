@@ -1,0 +1,11 @@
+_ > nanoagent.plugin.v0001.ProductConfig:
+tagline: "Audit a transcript against a degree's requirements, with every course placed where it counts most"
+summary: "Pick a program and a student seed and the agent runs a degree audit like a registrar would: it reads the catalog and the transcript, counts each retaken course once with its best grade, applies minimum grades and pass/fail rules, and places courses that fit two requirements so that as many requirements as possible are met. It reports what is satisfied, what is missing, the total credits and whether the student can graduate. A deterministic checker rebuilds the transcript, finds the best audit its own way, and checks every requirement."
+highlights:
+  - "Two fictional programs, Computer Science and Data Science, with all-of, choose-n and credit requirements"
+  - "Retakes, withdrawals, pass/fail grades and the C- line, all handled by stated rules"
+  - "Any best placement of shared courses is accepted, and every requirement is checked on its own"
+steps:
+  - "Ask for an audit of a program, with a student seed"
+  - "The agent reads the catalog and transcript, then places each course"
+  - "See each requirement's courses and what is missing, the credits and the graduation answer, with the verdict"

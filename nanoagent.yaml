@@ -1,0 +1,40 @@
+_ > nanoagent.plugin.v0001.ManifestConfig:
+id: degree-audit-checker
+name: Degree Audit Checker
+version: 0.1.0
+status: ready
+spec: nanoagent.plugin/v0001
+
+runtime > nanoagent.plugin.v0001.RuntimeConfig:
+  type: mcp_stdio
+  command: [uv, run, --frozen, python, -m, plugin]
+
+permissions > nanoagent.plugin.v0001.PermissionsConfig:
+  network > nanoagent.plugin.v0001.NetworkConfig:
+    hosts: []
+  filesystem > nanoagent.plugin.v0001.FilesystemConfig:
+    write: [workspace]
+
+# One entry per contract.Tool; its input and output classes are contract.TOOLS's.
+tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
+  get_catalog:
+    description: Get the degree program's requirements, each with its kind, what it needs, its minimum grade and the courses that count toward it, plus the credits needed to graduate and the grade order
+  get_transcript:
+    description: Get the student's transcript, every course attempt with its term, title, credits and grade, a retaken course once per attempt
+  pin_audit:
+    description: Pin the most requirements any legal placement of the student's courses satisfies and one audit that does, the task's answer key
+
+# One entry per contract.Task; its input class is contract.TASKS's.
+tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
+  audit-degree:
+    description: Audit a student's transcript against a degree program, placing each course toward at most one requirement so that as many requirements as possible are satisfied, and say what is missing and whether the student can graduate
+    runner: agent
+    tools: [get_catalog, get_transcript]
+    reference: pin_audit
+    instructions: |-
+      Plan. Exactly three tool calls: get_catalog and get_transcript, both in your first step with the task input copied exactly, then submit.
+      Grades. A retaken course counts once, with its best attempt; the grade order, best first, is A, A-, B+, B, B-, C+, C, C-, D+, D, D-, P, F, W. F and W are never passed. A course counts toward a requirement only when it is in that requirement's courses and its best grade meets the minimum: at or above it in the order (C- meets C-, D+ does not). P (pass) meets a D- minimum only, never C-.
+      Requirements. all: every listed course is needed (missing = listed courses not applied). choose: `needed` courses (missing = needed minus courses applied, at least 0). credits: courses whose credits add up to `needed` (missing = needed minus their credits, at least 0). A requirement is satisfied when missing is 0.
+      Placement. Each course is applied to at most one requirement. A course that qualifies for only one requirement goes there. Some courses qualify for two (for example COMP 382 for theory and electives): place each so that as many requirements as possible are satisfied. Put a shared course where it completes a requirement that has no other way to be completed, and check the alternatives before you settle. Every requirement that stays short must use every qualifying course that is not already applied elsewhere.
+      Totals. total_credits adds the credits of every course passed (best grade not F or W), each course once, whether or not it is applied to a requirement. graduation_ready is true only when every requirement is satisfied and total_credits is at least the catalog's total_credits.
+      Submit. requirements: one entry per catalog requirement, in the catalog's order: requirement (its id), satisfied, courses (the codes applied, as the catalog writes them) and missing. Reason briefly: list each course's best grade once, then place the shared courses.
