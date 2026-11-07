@@ -10,6 +10,7 @@ import anyio
 from helpers import task
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from scripted_agent import placements_from
 
 from plugin import get_catalog, get_transcript, pin_audit
 from plugin.audit import best_grades, meets, solve, total_credits
@@ -87,12 +88,42 @@ def test_the_mcp_server_lists_and_runs_every_tool(tmp_path: Path) -> None:
         async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
             await session.initialize()
             names = {tool.name for tool in (await session.list_tools()).tools}
-            assert names == {"get_catalog", "get_transcript", "pin_audit"}
+            assert names == {"get_catalog", "get_transcript", "place_courses", "pin_audit"}
             given = {"seed": 1, "program": "data-science-ba"}
-            for name in names:
+            for name in ("get_catalog", "get_transcript", "pin_audit"):
                 answer = await session.call_tool(name, given)
                 assert not answer.isError, name
+            catalog = (await session.call_tool("get_catalog", given)).structuredContent
+            transcript = (await session.call_tool("get_transcript", given)).structuredContent
+            placed = await session.call_tool("place_courses", {"task": given, "placements": placements_from(catalog, transcript)})
+            assert not placed.isError and placed.structuredContent["satisfied"] == 5
+            refused = await session.call_tool("place_courses", {"task": given, "placements": []})
+            assert refused.isError
             bad = await session.call_tool("get_transcript", {"seed": 1, "program": "history-ba"})
             assert bad.isError
 
     anyio.run(run)
+
+
+def test_get_transcript_summarizes_the_courses_that_count() -> None:
+    summary = get_transcript(task(), Path(".")).courses
+    best = best_grades(transcript(4, "cs-bs"))
+    assert all(c.best_grade == best[c.course] and c.counts_toward for c in summary)
+    assert any(len(c.counts_toward) > 1 for c in summary), "no shared course to place"
+
+
+def test_place_courses_refuses_illegal_placements(tmp_path: Path) -> None:
+    import pytest
+    from helpers import place
+
+    given = task(1, "data-science-ba")
+    shared = [c for c in get_transcript(given, tmp_path).courses if len(c.counts_toward) > 1]
+    good = [{"course": c.course, "requirement": c.counts_toward[0]} for c in shared]
+    assert place(given, good, tmp_path).satisfied >= 1
+    with pytest.raises(ValueError, match="not placed"):
+        place(given, good[1:], tmp_path)
+    with pytest.raises(ValueError, match="placed twice"):
+        place(given, good + good[:1], tmp_path)
+    with pytest.raises(ValueError, match="may count toward"):
+        wrong = next(r for r in ("core", "capstone", "domain") if r not in shared[0].counts_toward)
+        place(given, [{"course": good[0]["course"], "requirement": wrong}] + good[1:], tmp_path)

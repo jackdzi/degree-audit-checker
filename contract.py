@@ -10,6 +10,7 @@ from slimconfig import Output
 class Tool(Enum):
     GET_CATALOG = "get_catalog"
     GET_TRANSCRIPT = "get_transcript"
+    PLACE_COURSES = "place_courses"
     PIN_AUDIT = "pin_audit"
 
 
@@ -28,6 +29,7 @@ class Kind(Enum):
     CREDITS = "credits"
 
 
+TASK = "The task input, copied exactly as given"
 COURSE = "A course code exactly as the catalog writes it, e.g. COMP 382"
 REQUIREMENT = "A requirement's id exactly as the catalog gives it, e.g. theory"
 
@@ -71,8 +73,25 @@ class Attempt(Output):
 
 
 @dataclass
+class Course(Output):
+    course: Annotated[str, COURSE]
+    credits: Annotated[int, "The course's credits"]
+    best_grade: Annotated[str, "Its best grade over every attempt"]
+    counts_toward: Annotated[
+        list[Annotated[str, REQUIREMENT]],
+        "Every requirement it may count toward: listed there, with a best grade that meets that requirement's minimum",
+    ]
+
+
+@dataclass
 class TranscriptOutput(Output):
     attempts: Annotated[list[Attempt], "Every course attempt, oldest term first; a course retaken appears once per attempt"]
+    courses: Annotated[
+        list[Course],
+        "Every course that may count toward at least one requirement, by course code; a course in two or more "
+        "requirements' lists must be placed in only one",
+    ]
+    passed_credits: Annotated[int, "The credits of every course passed (best grade not F or W), each course once"]
 
 
 @dataclass
@@ -95,6 +114,29 @@ class AuditOutput(Output):
 
 
 @dataclass
+class Placement(Output):
+    course: Annotated[str, COURSE]
+    requirement: Annotated[str, "The requirement it is applied to: one of the course's counts_toward"]
+
+
+@dataclass
+class PlaceInput(Output):
+    task: Annotated[AuditInput, TASK]
+    placements: Annotated[
+        list[Placement],
+        "Where each course with two or more requirements in counts_toward goes, each such course once; courses with "
+        "one requirement go to it on their own",
+    ]
+
+
+@dataclass
+class PlaceOutput(Output):
+    file: Annotated[str, "The saved audit, relative to the workspace"]
+    satisfied: Annotated[int, "How many requirements this placement satisfies"]
+    audit: Annotated[AuditOutput, "The audit this placement gives: submit it as it is"]
+
+
+@dataclass
 class PinOutput(Output):
     data_sha256: Annotated[str, "sha256 of the catalog and the transcript as canonical JSON"]
     best_satisfied: Annotated[int, "The most requirements any legal placement of the courses satisfies"]
@@ -104,6 +146,7 @@ class PinOutput(Output):
 TOOLS = {
     Tool.GET_CATALOG: (AuditInput, CatalogOutput),
     Tool.GET_TRANSCRIPT: (AuditInput, TranscriptOutput),
+    Tool.PLACE_COURSES: (PlaceInput, PlaceOutput),
     Tool.PIN_AUDIT: (AuditInput, PinOutput),
 }
 TASKS = {Task.AUDIT_DEGREE: (AuditInput, AuditOutput)}

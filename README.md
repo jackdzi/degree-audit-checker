@@ -14,14 +14,15 @@ finds the best possible audit its own way, and checks every requirement.
 | Tool | Does | Code |
 |---|---|---|
 | `get_catalog` | The program's requirements (kind, what each needs, minimum grade, the courses that count), the credits needed to graduate, and the grade order | `src/plugin/audit.py`, `src/plugin/catalog.py` |
-| `get_transcript` | The student's course attempts, oldest term first, each with its term, title, credits and grade | `src/plugin/audit.py`, `src/plugin/catalog.py` |
+| `get_transcript` | The student's course attempts, oldest term first, each with its term, title, credits and grade; and its summary: every course that may count toward a requirement, with its best grade, credits and the requirements it qualifies for (`counts_toward`), and the passed credits | `src/plugin/audit.py`, `src/plugin/catalog.py` |
+| `place_courses` | Applies every course to a requirement, each course with two or more requirements where the agent's placements say and the rest to their one requirement; saves the audit this gives to `audit/<program>-<seed>.json` and returns it with how many requirements it satisfies | `src/plugin/audit.py` |
 | `pin_audit` | The answer key: the most requirements any legal placement satisfies and one audit that does, with the sha256 of the catalog and transcript | `src/plugin/audit.py` |
 
 ### Tasks
 
 | Task | Does | Runner |
 |---|---|---|
-| `audit-degree` | Audits the transcript against the program, placing shared courses to satisfy as many requirements as possible | `agent`, with `get_catalog` and `get_transcript`; reference `pin_audit` |
+| `audit-degree` | Audits the transcript against the program, placing shared courses to satisfy as many requirements as possible | `agent`, with `get_catalog`, `get_transcript` and `place_courses`; reference `pin_audit` |
 
 ## The task
 
@@ -42,6 +43,17 @@ The rules:
   must use every qualifying course not applied elsewhere.
 - Total credits count every passed course once. The student can graduate when
   every requirement is satisfied and total credits reach 120.
+
+The agent's decision is the placement: for each course that qualifies for two
+requirements, which one it counts toward, so that as many requirements as
+possible are satisfied. The grade rules (best attempt, F and W, P, minimum
+grades) are applied by `get_transcript`, and `place_courses` works out what is
+satisfied and missing from the placement. This split keeps each step within
+RUSH Lab's default limits (replies of at most 2,048 tokens, reasoning
+included): asked to apply the grade rules to 30 to 50 attempts itself,
+DeepSeek V4 Flash spent the whole reply reasoning and never answered. The
+agent calls `get_catalog` and `get_transcript`, then `place_courses`, then
+`submit` with the audit it returned.
 
 Transcripts vary in how far along the student is. They include failed,
 withdrawn and pass-graded attempts, retakes in later terms, grades on the
@@ -65,8 +77,9 @@ requirement it fits satisfies fewer requirements than the best placement.
    `satisfied` following from those courses; and, when short, no qualifying
    course left unused.
 4. Checks that the audit satisfies the best possible number of requirements
-   (any best placement is accepted), and checks `total_credits` and
-   `graduation_ready`.
+   (any best placement is accepted), checks `total_credits` and
+   `graduation_ready`, and checks that the audit saved in the workspace is
+   the one submitted.
 
 The verdict is valid only when every check holds; its score is the share of
 checks that hold, one per requirement plus the requirement list, the best

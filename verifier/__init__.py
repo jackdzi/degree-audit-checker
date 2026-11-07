@@ -8,6 +8,7 @@ from . import audit
 TOOLS = {
     Tool.GET_CATALOG: (audit.verify_audit_input, lambda given, made, workspace: audit.verify_catalog_output(given, made)),
     Tool.GET_TRANSCRIPT: (audit.verify_audit_input, lambda given, made, workspace: audit.verify_transcript_output(given, made)),
+    Tool.PLACE_COURSES: (audit.verify_place_input, audit.verify_place_output),
     Tool.PIN_AUDIT: (audit.verify_audit_input, lambda given, made, workspace: audit.verify_pin_output(given, made)),
 }
 # task -> its output's check, verify_task(arguments, output, reference, workspace)

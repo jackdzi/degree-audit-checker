@@ -1,7 +1,7 @@
 _ > nanoagent.plugin.v0001.ManifestConfig:
 id: degree-audit-checker
 name: Degree Audit Checker
-version: 0.1.0
+version: 0.2.0
 status: ready
 spec: nanoagent.plugin/v0001
 
@@ -20,7 +20,9 @@ tools > dict[contract.Tool, nanoagent.plugin.v0001.ToolConfig]:
   get_catalog:
     description: Get the degree program's requirements, each with its kind, what it needs, its minimum grade and the courses that count toward it, plus the credits needed to graduate and the grade order
   get_transcript:
-    description: Get the student's transcript, every course attempt with its term, title, credits and grade, a retaken course once per attempt
+    description: Get the student's transcript (every attempt) and its summary, each course that may count toward a requirement with its best grade, credits and the requirements it qualifies for, and the passed credits
+  place_courses:
+    description: Apply every course to a requirement, each shared course where the placements say and the rest to their one requirement, save the audit this gives to the workspace, and return it with how many requirements it satisfies
   pin_audit:
     description: Pin the most requirements any legal placement of the student's courses satisfies and one audit that does, the task's answer key
 
@@ -29,12 +31,11 @@ tasks > dict[contract.Task, nanoagent.plugin.v0001.TaskConfig]:
   audit-degree:
     description: Audit a student's transcript against a degree program, placing each course toward at most one requirement so that as many requirements as possible are satisfied, and say what is missing and whether the student can graduate
     runner: agent
-    tools: [get_catalog, get_transcript]
+    tools: [get_catalog, get_transcript, place_courses]
     reference: pin_audit
     instructions: |-
-      Plan. Exactly three tool calls: get_catalog and get_transcript, both in your first step with the task input copied exactly, then submit.
-      Grades. A retaken course counts once, with its best attempt; the grade order, best first, is A, A-, B+, B, B-, C+, C, C-, D+, D, D-, P, F, W. F and W are never passed. A course counts toward a requirement only when it is in that requirement's courses and its best grade meets the minimum: at or above it in the order (C- meets C-, D+ does not). P (pass) meets a D- minimum only, never C-.
-      Requirements. all: every listed course is needed (missing = listed courses not applied). choose: `needed` courses (missing = needed minus courses applied, at least 0). credits: courses whose credits add up to `needed` (missing = needed minus their credits, at least 0). A requirement is satisfied when missing is 0.
-      Placement. Each course is applied to at most one requirement. A course that qualifies for only one requirement goes there. Some courses qualify for two (for example COMP 382 for theory and electives): place each so that as many requirements as possible are satisfied. Put a shared course where it completes a requirement that has no other way to be completed, and check the alternatives before you settle. Every requirement that stays short must use every qualifying course that is not already applied elsewhere.
-      Totals. total_credits adds the credits of every course passed (best grade not F or W), each course once, whether or not it is applied to a requirement. graduation_ready is true only when every requirement is satisfied and total_credits is at least the catalog's total_credits.
-      Submit. requirements: one entry per catalog requirement, in the catalog's order: requirement (its id), satisfied, courses (the codes applied, as the catalog writes them) and missing. Reason briefly: list each course's best grade once, then place the shared courses.
+      Plan. One step each: (1) get_catalog and get_transcript together, both with the task input copied exactly; (2) place_courses with your placements; (3) submit with the audit place_courses returned, exactly as returned. If place_courses satisfies fewer requirements than you expected, you may call it once more with a better placement before submitting.
+      What the tools settle. get_transcript's courses already apply every grade rule (best attempt, F and W, P meeting only D-, minimum grades): counts_toward lists the requirements each course may count toward. place_courses applies each course and works out what is satisfied and missing, the total credits and graduation.
+      Requirements. all: every listed course is needed. choose: `needed` courses. credits: courses whose credits add up to `needed`.
+      Your decision. Each course counts toward exactly one requirement. Choose, for every course with two or more requirements in counts_toward, which one it goes to, so that as many requirements as possible are satisfied; the other courses go to their one requirement on their own. Put a shared course where it completes a requirement that cannot be completed otherwise; use the rest to fill credit requirements.
+      Brevity. Do not restate the catalog or transcript. Think only about the shared courses and the requirements they touch, one short line each, then call place_courses.

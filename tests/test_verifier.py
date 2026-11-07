@@ -270,3 +270,39 @@ def test_input_and_tool_output_checks() -> None:
     assert verifier.verify_output("get_transcript", given, made, ".")["valid"] is True
     made.attempts[0].grade = "A" if made.attempts[0].grade != "A" else "B"
     assert verifier.verify_output("get_transcript", given, made, ".")["valid"] is False
+
+
+def test_rejects_an_audit_that_was_never_saved() -> None:
+    given = task(4)
+    audit, reference = gold(given)
+    result = verdict(given, audit, reference, save=False)
+    assert result["valid"] is False and "saved_audit" in result["details"]["failed_checks"]
+
+
+def test_rejects_an_audit_that_differs_from_the_saved_one() -> None:
+    given = task(4)
+    audit, reference = gold(given)
+    changed = copy.deepcopy(audit)
+    changed["total_credits"] += 1
+    result = verdict(given, audit, reference, saved=changed)
+    assert result["valid"] is False and "saved_audit" in result["details"]["failed_checks"]
+
+
+def test_place_courses_input_and_output_are_checked(tmp_path) -> None:
+    from helpers import as_sandbox, place
+    from slimconfig import build_output, plain_output
+
+    from contract import PlaceInput, PlaceOutput
+    from plugin import get_transcript
+
+    given = task(1, "data-science-ba")
+    shared = [c for c in get_transcript(given, tmp_path).courses if len(c.counts_toward) > 1]
+    good = [{"course": c.course, "requirement": c.counts_toward[0]} for c in shared]
+    value = build_output({"task": plain_output(given), "placements": good}, PlaceInput)
+    assert verifier.verify_input("place_courses", value)["valid"] is True
+    for bad in (good[1:], good + good[:1], [{"course": "HIST 101", "requirement": "core"}] + good):
+        assert verifier.verify_input("place_courses", build_output({"task": plain_output(given), "placements": bad}, PlaceInput))["valid"] is False
+    made = as_sandbox(place(given, good, tmp_path), PlaceOutput)
+    assert verifier.verify_output("place_courses", value, made, str(tmp_path))["valid"] is True
+    made.audit.requirements[0].missing += 1
+    assert verifier.verify_output("place_courses", value, made, str(tmp_path))["valid"] is False

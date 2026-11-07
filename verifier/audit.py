@@ -3,7 +3,9 @@ itself, and finds the most requirements that can be satisfied at once its own wa
 requirements, largest first, and searches for a placement of the shared courses that satisfies the
 whole set. The tools instead try every placement of every shared course; the two must agree."""
 
+import json
 from itertools import combinations
+from pathlib import Path
 
 from .catalog import COURSES, GRADES, PROGRAMS, TOTAL_CREDITS, transcript
 from .checks import result
@@ -124,6 +126,38 @@ def judge(reqs, best, audit):
     return checks, satisfied
 
 
+def audit_path(task):
+    return f"audit/{task.program.value}-{task.seed}.json"
+
+
+def homes_of(reqs, best):
+    """{course: the requirements it may count toward}, for courses with at least one."""
+    fits = qualifying(reqs, best)
+    homes = {}
+    for req in reqs:
+        for course in fits[req["id"]]:
+            homes.setdefault(course, []).append(req["id"])
+    return homes
+
+
+def placement_problem(reqs, best, placements):
+    """Why a list of placements is not a legal choice for the shared courses, or None."""
+    homes = homes_of(reqs, best)
+    seen = set()
+    for p in placements:
+        if p.course not in homes:
+            return f"{p.course} counts toward no requirement on this transcript"
+        if p.course in seen:
+            return f"{p.course} is placed twice"
+        if p.requirement not in homes[p.course]:
+            return f"{p.course} may count toward {', '.join(homes[p.course])}, not {p.requirement}"
+        seen.add(p.course)
+    unplaced = sorted(c for c, ids in homes.items() if len(ids) > 1 and c not in seen)
+    if unplaced:
+        return "not placed: " + ", ".join(unplaced)
+    return None
+
+
 def seed_problem(task):
     if not 0 <= task.seed <= MAX_SEED:
         return f"seed must be from 0 to {MAX_SEED}"
@@ -133,6 +167,36 @@ def seed_problem(task):
 def verify_audit_input(value):
     problem = seed_problem(value)
     return result(False, problem) if problem else result(True, "input is valid")
+
+
+def verify_place_input(value):
+    problem = seed_problem(value.task)
+    if problem:
+        return result(False, problem)
+    reqs, _, best = rebuild(value.task)
+    problem = placement_problem(reqs, best, value.placements)
+    return result(False, problem) if problem else result(True, "input is valid")
+
+
+def verify_place_output(given, output, workspace):
+    reqs, _, best = rebuild(given.task)
+    homes = homes_of(reqs, best)
+    chosen = {p.course: p.requirement for p in given.placements}
+    expected = {r["id"]: sorted(c for c in homes if chosen.get(c, homes[c][0]) == r["id"]) for r in reqs}
+    got = {r.requirement: sorted(r.courses) for r in output.audit.requirements}
+    if got != expected:
+        return result(False, "the audit does not apply each course where the placements say")
+    checks, satisfied = judge(reqs, best, output.audit)
+    failed = [f"{name}: {problem}" for name, problem in checks.items() if problem]
+    if failed or output.satisfied != satisfied:
+        return result(False, "the audit does not follow from its courses: " + "; ".join(failed or ["satisfied is miscounted"]))
+    credits = passed_credits(best)
+    if output.audit.total_credits != credits or output.audit.graduation_ready != (satisfied == len(reqs) and credits >= TOTAL_CREDITS):
+        return result(False, "total_credits or graduation_ready is wrong")
+    path = Path(workspace) / audit_path(given.task)
+    if output.file != audit_path(given.task) or not path.is_file():
+        return result(False, f"{audit_path(given.task)} was not written")
+    return result(True, "the audit follows from the placements", satisfied=satisfied)
 
 
 def verify_catalog_output(task, output):
@@ -155,6 +219,18 @@ def verify_transcript_output(task, output):
         return result(False, "the transcript is not the seed's")
     if any(a.credits != COURSES[a.course][1] or a.title != COURSES[a.course][0] for a in output.attempts):
         return result(False, "a course's title or credits is wrong")
+    reqs, _, best = rebuild(task)
+    fits = qualifying(reqs, best)
+    expected = {}
+    for req in reqs:
+        for course in fits[req["id"]]:
+            expected.setdefault(course, []).append(req["id"])
+    given = {c.course: (c.credits, c.best_grade, list(c.counts_toward)) for c in output.courses}
+    wanted = {c: (COURSES[c][1], best[c], ids) for c, ids in expected.items()}
+    if given != wanted or len(output.courses) != len(wanted):
+        return result(False, "the course summary is not each course's best grade and the requirements it may count toward")
+    if output.passed_credits != passed_credits(best):
+        return result(False, "passed_credits is not the credits of every passed course")
     return result(True, "the transcript is the seed's", attempts=len(rows))
 
 
@@ -186,6 +262,20 @@ def verify_task(arguments, output, reference, workspace):
     )
     checks["total_credits"] = None if output.total_credits == credits else f"total_credits is {output.total_credits}, not {credits}"
     ready = top == len(reqs) and credits >= TOTAL_CREDITS
+    saved = Path(workspace) / audit_path(arguments)
+    on_disk = json.loads(saved.read_text(encoding="utf-8")).get("audit") if saved.is_file() else None
+    submitted = {
+        "requirements": [
+            {"requirement": r.requirement, "satisfied": r.satisfied, "courses": list(r.courses), "missing": r.missing}
+            for r in output.requirements
+        ],
+        "total_credits": output.total_credits,
+        "graduation_ready": output.graduation_ready,
+    }
+    checks["saved_audit"] = (
+        f"{audit_path(arguments)} was never saved" if on_disk is None
+        else None if on_disk == submitted else f"{audit_path(arguments)} does not hold the submitted audit"
+    )
     checks["graduation_ready"] = (
         None if output.graduation_ready == ready else f"graduation_ready is {str(output.graduation_ready).lower()}, not {str(ready).lower()}"
     )

@@ -13,13 +13,13 @@ from mcp.server.stdio import stdio_server
 from slimconfig import build_output, output_schema, plain_output
 
 from contract import TOOLS, Tool
-from plugin import get_catalog, get_transcript, pin_audit
+from plugin import get_catalog, get_transcript, pin_audit, place_courses
 
 server = Server("degree-audit-checker")
 # NanoAgent names the one folder this plugin may write to.
 WORKSPACE_ENV = "NANOAGENT_WORKSPACE"
 # Each tool's implementation: (its input, the workspace) -> its output, as contract.TOOLS types them.
-IMPLEMENTATIONS = {Tool.GET_CATALOG: get_catalog, Tool.GET_TRANSCRIPT: get_transcript, Tool.PIN_AUDIT: pin_audit}
+IMPLEMENTATIONS = {Tool.GET_CATALOG: get_catalog, Tool.GET_TRANSCRIPT: get_transcript, Tool.PLACE_COURSES: place_courses, Tool.PIN_AUDIT: pin_audit}
 
 
 @server.list_tools()
